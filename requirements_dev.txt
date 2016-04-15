@@ -1,10 +1,10 @@
 flake8
 mock
-coverage
+coverage==3.7.1
 django-coverage
 transifex-client
 coveralls
 tox
 django-nose
-mkdocs
+mkdocs==0.14.0
 ghp-import

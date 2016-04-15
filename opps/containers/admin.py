@@ -1,31 +1,49 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import json
+
 from django.contrib import admin
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 from django.conf import settings
+from django.core.urlresolvers import reverse
+from django.shortcuts import redirect
 
-from .models import Container, ContainerImage, Mirror
-from .models import ContainerBox, ContainerBoxContainers
-from .forms import ContainerBoxContainersInlineForm
 from opps.core.admin import PublishableAdmin, apply_opps_rules, BaseBoxAdmin
-from opps.contrib.multisite.admin import AdminViewPermission
+from opps.core.permissions.admin import AdminViewPermission
 from opps.core.filters import ChannelListFilter, HasQuerySet
 from opps.images.generate import image_url
 from opps.fields.models import Field, FieldOption
+
+from .models import Container, ContainerImage, Mirror
+from .models import ContainerBox, ContainerBoxContainers, ContainerRelated
+from .forms import ContainerBoxContainersInlineForm, ContainerImageInlineForm
+
+
+@apply_opps_rules('containers')
+class ContainerRelatedInline(admin.TabularInline):
+    model = ContainerRelated
+    fk_name = 'container'
+    raw_id_fields = ['related']
+    actions = None
+    ordering = ('order',)
+    extra = 1
+    classes = ('collapse',)
+    verbose_name = _(u'Related content')
+    verbose_name_plural = _(u'Related contents')
 
 
 @apply_opps_rules('containers')
 class ContainerImageInline(admin.TabularInline):
     model = ContainerImage
+    form = ContainerImageInlineForm
     fk_name = 'container'
     raw_id_fields = ['image']
     sortable_field_name = "order"
     actions = None
     extra = 0
-    verbose_name = _(u"Container image")
-    verbose_name_plural = _(u"Container images")
+    verbose_name = _(u"Image")
+    verbose_name_plural = _(u"Images")
     fieldsets = [(None, {'fields': ('image', 'image_thumb',
                          'order', 'caption')})]
     ordering = ('order',)
@@ -51,7 +69,6 @@ class ContainerBoxContainersInline(admin.StackedInline):
     ordering = ('order',)
     extra = 0
     fieldsets = [(None, {
-        'classes': ('collapse',),
         'fields': ('container', 'aggregate', 'highlight', 'order',
                    'date_available', 'date_end', 'hat', 'title',
                    'main_image', 'main_image_caption', 'url', 'url_target')})]
@@ -59,11 +76,16 @@ class ContainerBoxContainersInline(admin.StackedInline):
 
 @apply_opps_rules('containers')
 class ContainerAdmin(PublishableAdmin, AdminViewPermission):
+    inlines = [ContainerRelatedInline]
     prepopulated_fields = {"slug": ["title"]}
     readonly_fields = ['get_http_absolute_url', 'short_url',
                        'in_containerboxes', 'image_thumb']
     raw_id_fields = ['main_image', 'channel', 'mirror_channel']
     ordering = ('-date_available',)
+
+    autocomplete_lookup_fields = {
+        'fk': ['channel'],
+    }
 
     def get_list_filter(self, request):
         list_filter = super(ContainerAdmin, self).list_filter
@@ -77,11 +99,11 @@ class ContainerAdmin(PublishableAdmin, AdminViewPermission):
                 application__contains=obj.__class__.__name__):
             if field.type == 'checkbox':
                 for fo in FieldOption.objects.filter(field=field):
-                    key = "{}_{}".format(field.slug, fo.option.slug)
-                    _json[key] = request.POST.get('json_{}'.format(key), '')
+                    key = "{0}_{1}".format(field.slug, fo.option.slug)
+                    _json[key] = request.POST.get('json_{0}'.format(key), '')
             else:
                 _json[field.slug] = request.POST.get(
-                    'json_{}'.format(field.slug), '')
+                    'json_{0}'.format(field.slug), '')
 
         obj.json = json.dumps(_json)
         obj.save()
@@ -105,6 +127,10 @@ class ContainerBoxAdmin(BaseBoxAdmin, AdminViewPermission):
             'classes': ('extrapretty'),
             'fields': ('content_group', 'published', 'date_available')}),
     )
+
+    autocomplete_lookup_fields = {
+        'fk': ['channel'],
+    }
 
     def clean_ended_entries(self, request, queryset):
         now = timezone.now()
@@ -141,20 +167,31 @@ class ContainerBoxAdmin(BaseBoxAdmin, AdminViewPermission):
 
 class HideContainerAdmin(PublishableAdmin, AdminViewPermission):
 
-    list_display = ['image_thumb', 'get_child_class', 'title',
-                    'channel_name', 'date_available',
-                    'published']
+    list_display = ['image_thumb', 'get_child_class', 'title', 'channel_name',
+                    'date_available', 'published']
+
+    list_display_links = ['image_thumb', 'title']
+
     readonly_fields = ['image_thumb']
 
     def get_child_class(self, obj):
         return _(obj.child_class)
     get_child_class.short_description = _(u'Child class')
+    get_child_class.admin_order_field = 'child_class'
 
     def get_model_perms(self, *args, **kwargs):
         return {}
 
     def has_add_permission(self, request):
         return False
+
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        """
+        Redirects to specific child_class admin change form.
+        """
+        obj = self.queryset(request).get(pk=object_id)
+        return redirect(reverse('admin:{}_{}_change'.format(
+            obj._meta.app_label, obj._meta.module_name), args=(obj.pk,)))
 
     def get_list_filter(self, request):
         list_filter = super(HideContainerAdmin, self).list_filter
@@ -167,7 +204,8 @@ class HideContainerAdmin(PublishableAdmin, AdminViewPermission):
         blacklist = getattr(settings, 'OPPS_CONTAINERS_BLACKLIST', [])
         if blacklist:
             qs = qs.exclude(child_class__in=blacklist)
-        return qs
+        return qs.select_related('main_image')
+
 
 admin.site.register(Container, HideContainerAdmin)
 admin.site.register(ContainerBox, ContainerBoxAdmin)

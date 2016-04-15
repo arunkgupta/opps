@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import json
 import operator
 
 from django.db import models
@@ -20,6 +21,7 @@ from opps.core.tags.models import Tagged
 from opps.db.models.fields import JSONField
 from opps.boxes.models import BaseBox
 
+from .managers import ContainerManager
 from .signals import shorturl_generate, delete_container
 from .tasks import check_mirror_channel, check_mirror_site
 
@@ -64,9 +66,17 @@ class Container(PolymorphicModel, ShowFieldContent, Publishable, Slugged,
         max_length=255)
     json = JSONField(_(u"Customized"),
                      null=True, blank=True)
+    related_containers = models.ManyToManyField(
+        'containers.Container',
+        null=True, blank=True,
+        related_name='container_relatedcontainers',
+        through='containers.ContainerRelated',
+    )
+
+    objects = ContainerManager()
 
     def __unicode__(self):
-        return u"{}".format(self.get_absolute_url())
+        return u"{0}".format(self.get_absolute_url())
 
     def __repr__(self):
         val = self.__unicode__()
@@ -106,13 +116,13 @@ class Container(PolymorphicModel, ShowFieldContent, Publishable, Slugged,
 
     def get_absolute_url(self):
         if self.channel.homepage:
-            return u"/{}.html".format(self.slug)
-        return u"/{}/{}.html".format(self.channel_long_slug, self.slug)
+            return u"/{0}.html".format(self.slug)
+        long_slug = self.channel_long_slug or self.channel.long_slug
+        return u"/{0}/{1}.html".format(long_slug, self.slug)
 
     @classmethod
     def get_children_models(cls):
         children = models.get_models()
-        print 'models', children
         return [model for model in children
                 if (model is not None and
                     issubclass(model, cls) and
@@ -127,7 +137,8 @@ class Container(PolymorphicModel, ShowFieldContent, Publishable, Slugged,
         return _(self.child_class)
 
     def get_http_absolute_url(self):
-        return u"http://{}{}".format(self.site_domain, self.get_absolute_url())
+        return u"http://{0}{1}".format(self.site_domain or self.site.domain,
+                                       self.get_absolute_url())
     get_http_absolute_url.short_description = _(u'Get HTTP Absolute URL')
 
     def recommendation(self, child_class=False, query_slice=[None, 10]):
@@ -141,9 +152,10 @@ class Container(PolymorphicModel, ShowFieldContent, Publishable, Slugged,
         )
 
         cachekey = _cache_key(
-            u'{}-recommendation'.format(self.__class__.__name__),
+            u'{0}-recommendation'.format(self.__class__.__name__),
             self.__class__, self.site_domain,
-            u"{}-{}-{}".format(child_class, self.channel_long_slug, self.slug))
+            u"{0}-{1}-{2}".format(child_class, self.channel_long_slug,
+                                  self.slug))
         getcache = cache.get(cachekey)
         if getcache:
             return getcache
@@ -179,9 +191,8 @@ class Container(PolymorphicModel, ShowFieldContent, Publishable, Slugged,
         return obj.filter(container=self.id)
 
     def custom_fields(self):
-        import json
         if not self.json:
-            return
+            return {}
         return json.loads(self.json)
 
 
@@ -214,8 +225,8 @@ class ContainerImage(models.Model):
 
     def __unicode__(self):
         if self.image:
-            return u"{}".format(self.image.title)
-        return u'Id:{} - Order:{}'.format(self.id, self.order)
+            return u"{0}".format(self.image.title)
+        return u'Id:{0} - Order:{1}'.format(self.id, self.order)
 
 
 class ContainerBox(BaseBox):
@@ -355,16 +366,25 @@ class ContainerBox(BaseBox):
         exclude_ids = exclude_ids or []
 
         now = timezone.now()
-        qs = self.containerboxcontainers_set.filter(
+        qs = self.containerboxcontainers_set.prefetch_related(
+            'main_image', 'container', 'container__main_image',
+            'container__channel')
+        qs = qs.filter(
             models.Q(date_end__gte=now) |
             models.Q(date_end__isnull=True),
             date_available__lte=now
         ).exclude(
-            container__id__in=exclude_ids
+            container_id__in=exclude_ids
         ).order_by('order').distinct()
 
         self.local_cache['ordered_box_containers'] = qs
         return qs
+
+    def get_containers_queryset(self):
+        if self.queryset:
+            return self.queryset.get_queryset()
+        else:
+            return self.ordered_containers()
 
     def get_queryset(self, exclude_ids=None, use_local_cache=True):
         cached = self.local_cache.get('get_queryset')
@@ -379,6 +399,18 @@ class ContainerBox(BaseBox):
         if use_local_cache:
             self.local_cache['get_queryset'] = queryset
         return queryset
+
+    def clean(self):
+        repeated = ContainerBox.objects.filter(
+            site=self.site,
+            slug=self.slug,
+            channel_long_slug=self.channel.long_slug
+        ).exclude(pk=self.pk)
+
+        if repeated.exists():
+            raise ValidationError(
+                _(u"Already exists a ContainerBox with same slug and site")
+            )
 
 
 class ContainerBoxContainers(models.Model):
@@ -457,6 +489,30 @@ class ContainerBoxContainers(models.Model):
 
         if self.container and not self.container.published:
             raise ValidationError(_(u'Article not published!'))
+
+
+class ContainerRelated(models.Model):
+    container = models.ForeignKey(
+        'containers.Container',
+        verbose_name=_(u'Container'),
+        related_name='containerrelated_container'
+    )
+
+    related = models.ForeignKey(
+        'containers.Container',
+        verbose_name=_(u'Related Container'),
+        related_name="%(app_label)s_%(class)s_container"
+    )
+
+    order = models.PositiveIntegerField(_(u'Order'), default=0)
+
+    class Meta:
+        verbose_name = _('Related content')
+        verbose_name_plural = _('Related contents')
+        ordering = ('order',)
+
+    def __unicode__(self):
+        return u"{0}->{1}".format(self.related.slug, self.container.slug)
 
 
 class Mirror(Container):

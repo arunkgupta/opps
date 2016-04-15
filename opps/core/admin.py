@@ -1,19 +1,36 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import logging
+import warnings
+from compiler.ast import flatten
+from django.db import IntegrityError
 from django.contrib import admin
 from django.utils import timezone
 from django.conf import settings
 from django.contrib.sites.models import Site
 from django.contrib.auth import get_user_model
 from django.utils.translation import ugettext_lazy as _
+from django.utils.text import slugify
 
-from haystack.query import SearchQuerySet
+# Conditional apps import
+try:
+    from modelclone import ClonableModelAdmin
+except ImportError:
+    pass
+
+try:
+    from haystack.query import SearchQuerySet
+except ImportError:
+    pass
+
 from django.contrib.admin.views.main import ChangeList
 
-from .models import Config
+from .models import Config, Slugged
 from .filters import ChildClassListFilter, ChannelListFilter
 
+logger = logging.getLogger(__name__)
+
 USE_HAYSTACK = getattr(settings, 'OPPS_ADMIN_USE_HAYSTACK', False)
+USE_MODELCLONE = getattr(settings, 'OPPS_ADMIN_USE_MODELCLONE', False)
 
 
 class HaystackChangeList(ChangeList):
@@ -48,10 +65,58 @@ class MassPublishMixin(admin.ModelAdmin):
     publish.short_description = _(u'Publish/Unpublish')
 
 
-class PublisherAdmin(MassPublishMixin):
+class CustomClonableModelAdmin(
+        ClonableModelAdmin if USE_MODELCLONE else object):
+    pass
+
+
+class ModelCloneMixin(CustomClonableModelAdmin):
+    pass
+
+
+class MassDuplicateMixin(admin.ModelAdmin):
+
+    actions = ['duplicate']
+
+    def duplicate(self, request, queryset):
+
+        for obj in queryset:
+            snapshot = {}
+            remove_field = [
+                'id', 'container_ptr', 'related_posts',
+                'containerbox_containers', 'mirror_channel',
+                'containers_mirror', 'images', 'postrelated_related',
+                'postrelated_post', 'albums', 'mirror_site',
+                'post_relatedposts', 'link_containers', 'slug',
+                'polymorphic_ctype', 'date_insert', 'user']
+
+            for key in obj._meta.get_all_field_names():
+                try:
+                    if key in remove_field:
+                        continue
+
+                    snapshot[key] = getattr(obj, key)
+                    if snapshot[key] is None:
+                        del snapshot[key]
+                except AttributeError:
+                    pass
+
+            snapshot['published'] = False
+            snapshot['user'] = request.user
+            snapshot['title'] = u"{0} - COPY :: {1}".format(
+                snapshot['title'], obj.pk)
+            try:
+                obj.__class__.objects.create(**snapshot)
+            except IntegrityError:
+                pass
+
+    duplicate.short_description = _(u'Duplicate')
+
+
+class PublisherAdmin(MassPublishMixin, MassDuplicateMixin, ModelCloneMixin):
     list_display = ['title', 'site', 'channel_long_slug',
                     'date_available', 'published', 'preview_url']
-    list_filter = ['date_available', 'published', ChildClassListFilter]
+    list_filter = ['date_available', 'published', 'site', ChildClassListFilter]
     search_fields = ['title', 'slug', 'channel_name']
 
     def in_containerboxes(self, obj):

@@ -1,3 +1,21 @@
+OPPS_CHANNEL_LAYOUT
+-----------
+
+Default: `(('default', _('Default')),)`
+
+Define the default availables layouts for channels if no **channel.json** is
+avaiable.
+
+OPPS_CHANNEL_URL_NAME
+-----------
+
+Default: `'containers:channel'`
+
+Define the url name when calling get_absolute_url on Channel instances.
+
+OPPS_TRAVIS
+-----------
+
 OPPS_CONTAINERS_BLACKLIST
 -----------
 
@@ -13,18 +31,25 @@ OPPS_TRAVIS
 
 OPPS_MENU
 -----------
-    
+
 OPPS_MIRROR_CHANNEL
 -----------
 
 OPPS_RECOMMENDATION_RANGE_DAYS
 -----------
 
+OPPS_MULTISITE_FALLBACK
+-----------
+
 OPPS_MULTISITE_ADMIN
 -----------
 
-OPPS_MULTISITE_FALLBACK
+OPPS_PERMISSION_FALLBACK_ON_CHANNEL
 -----------
+
+Default: `False`
+
+Define if the multisites have access to channels from the main site. Used when OPPS_MULTISITE_ADMIN is active.
 
 OPPS_PAGINATE_BY
 -----------
@@ -89,7 +114,7 @@ OPPS_VIEWS_LIMIT
 
 Default: `None`
 
-Integer to define the number of `posts` and `albums` on context of channel page. 
+Integer to define the number of `posts` and `albums` on context of channel page.
 
 OPPS_CHANNEL_CONF
 -----------

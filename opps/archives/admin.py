@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 
 from opps.core.admin import apply_opps_rules
-from opps.contrib.multisite.admin import AdminViewPermission
+from opps.core.permissions.admin import AdminViewPermission
 
 from .models import File
 
@@ -30,8 +30,15 @@ class FileAdmin(AdminViewPermission):
     )
 
     def download_link(self, obj):
-        html = '<a href="{}">{}</a>'.format(obj.archive.url,
-                                            unicode(_(u'Download')))
+        download_url = ''
+        if obj.archive:
+            download_url = obj.archive.url
+        elif obj.archive_link:
+            download_url = obj.archive_link
+
+        html = '<a href="{0}">{1}</a>'.format(
+            download_url,
+            unicode(_(u'Download')))
         return html
     download_link.short_description = _(u'download')
     download_link.allow_tags = True

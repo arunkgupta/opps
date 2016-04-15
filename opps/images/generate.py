@@ -21,13 +21,12 @@ def _prepend_media_url(url):
     if url.startswith(settings.MEDIA_URL):
         url = _remove_prefix(url, settings.MEDIA_URL)
         url.lstrip('/')
-        return u'{}/{}'.format(settings.THUMBOR_MEDIA_URL, url)
+        return u'{0}/{1}'.format(settings.THUMBOR_MEDIA_URL, url)
     return url
 
 
 def image_url(image_url, **kwargs):
-    if not settings.THUMBOR_ENABLED or image_url.split('.')[-1] == 'gif':
-        # TODO: alternative ways for generating the thumbnails
+    if not settings.THUMBOR_ENABLED:
         return image_url
 
     image_url = _prepend_media_url(image_url)
@@ -37,6 +36,6 @@ def image_url(image_url, **kwargs):
         encrypted_url = crypto.generate(
             image_url=image_url,
             **dict(settings.THUMBOR_ARGUMENTS, **kwargs)).strip('/')
-        return u'{}/{}'.format(settings.THUMBOR_SERVER, encrypted_url)
+        return u'{0}/{1}'.format(settings.THUMBOR_SERVER, encrypted_url)
     except:
         return u""

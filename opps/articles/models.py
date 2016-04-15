@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import warnings
+
 from urlparse import urlparse
 
 from django.db import models
@@ -34,12 +36,6 @@ class Post(Article):
         related_name='post_albums',
         verbose_name=_(u"Albums")
     )
-    related_posts = models.ManyToManyField(
-        'containers.Container',
-        null=True, blank=True,
-        related_name='post_relatedposts',
-        through='articles.PostRelated',
-    )
 
     objects = PublishableManager()
 
@@ -50,9 +46,9 @@ class Post(Article):
 
     def all_images(self, check_published=True):
         cachekey = _cache_key(
-            '{}main-all_images'.format(self.__class__.__name__),
+            '{0}main-all_images'.format(self.__class__.__name__),
             self.__class__, self.site_domain,
-            u"{}-{}".format(self.channel_long_slug, self.slug))
+            u"{0}-{1}".format(self.channel_long_slug, self.slug))
         getcache = cache.get(cachekey)
         if getcache and check_published:
             return getcache
@@ -72,12 +68,12 @@ class Post(Article):
             if check_published:
                 images = images.filter(published=True)
 
-            captions = {
-                ci.image_id: ci.caption for ci in
+            captions = dict([
+                (ci.image_id, ci.caption) for ci in
                 ContainerImage.objects.filter(
                     container_id=album.pk
                 )
-            }
+            ])
 
             for image in images:
                 caption = captions.get(image.pk)
@@ -98,6 +94,12 @@ class Post(Article):
         ).order_by(
             'postrelated_related__order'
         ).distinct()
+
+    @property
+    def related_posts(self):
+        warn = "related_posts will be removed, must use related_containers."
+        warnings.warn(warn, DeprecationWarning)
+        return self.related_containers
 
 
 class PostRelated(models.Model):

@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from django.http import Http404
 from django.shortcuts import get_object_or_404
@@ -10,31 +9,47 @@ from django.contrib.sites.models import get_current_site
 from opps.articles.models import Album
 from opps.containers.models import Container, ContainerBox
 from opps.channels.models import Channel
+from opps.fields.utils import field_template_read
 
 
 class View(object):
-
     context_object_name = "context"
     paginate_by = settings.OPPS_PAGINATE_BY
     limit = settings.OPPS_VIEWS_LIMIT
     page_kwarg = 'page'
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         self.slug = None
         self.channel = None
         self.long_slug = None
-        self.channel_long_slug = []
         self.article = None
-        self.excluded_ids = set()
         self.child_class = u'container'
+        self.excluded_ids = set()
+        self.channel_long_slug = []
+        super(View, self).__init__(*args, **kwargs)
+
+    def get_channel_descendants_lookup(self):
+        """ It's a great idea to work with "mptt keys", so we need to rewrite
+        this method!
+        """
+        obj = {'channel__tree_id': self.channel.tree_id}
+        if self.channel:
+            if self.__class__.__module__ == "opps.containers.list":
+                # TODO: Study be worth keeping this logic
+                obj['channel__lft__gt'] = self.channel.lft
+                obj['channel__rght__lt'] = self.channel.rght
+            elif self.__class__.__module__ == "opps.containers.detail":
+                obj['channel__lft'] = self.channel.lft
+                obj['channel__rght'] = self.channel.rght
+        return obj
 
     def get_paginate_by(self, queryset):
         queryset = self.get_queryset()
 
-        setting_name = 'OPPS_{}_{}_PAGINATE_BY'.format(queryset.
-                                                       model._meta.app_label,
-                                                       queryset.model.
-                                                       __name__).upper()
+        setting_name = 'OPPS_{0}_{1}_PAGINATE_BY'.format(queryset.
+                                                         model._meta.app_label,
+                                                         queryset.model.
+                                                         __name__).upper()
 
         by_settings = getattr(settings, setting_name, self.paginate_by)
         by_request = self.request.GET.get('paginate_by')
@@ -100,12 +115,12 @@ class View(object):
 
         if self.slug:
             try:
-                context['next'] = self.get_object()\
+                context['next'] = self.get_object() \
                     .get_next_by_date_insert(**obj_filter)
             except self.get_object().DoesNotExist:
                 pass
             try:
-                context['prev'] = self.get_object()\
+                context['prev'] = self.get_object() \
                     .get_previous_by_date_insert(**obj_filter)
             except self.get_object().DoesNotExist:
                 pass
@@ -116,16 +131,23 @@ class View(object):
             if self.get_object().child_class == 'Mirror':
                 context['context'] = self.get_object().container
 
-        if self.request.META.get('HTTP_X_PJAX', False) or\
+        if self.request.META.get('HTTP_X_PJAX', False) or \
            self.request.is_ajax():
             context['extends_parent'] = 'base_ajax.html'
+
+        try:
+            # opps.field append on context
+            context['context'].fields = field_template_read(
+                context['context'].custom_fields())
+        except AttributeError:
+            pass
 
         return context
 
     def get_template_folder(self):
         domain_folder = "containers"
         if self.site.id > 1:
-            domain_folder = "{}/containers".format(self.site.domain)
+            domain_folder = "{0}/containers".format(self.site.domain)
         return domain_folder
 
     def get_long_slug(self):
@@ -156,7 +178,6 @@ class View(object):
             self.channel = get_object_or_404(Channel, **filters)
 
         self.long_slug = self.channel.long_slug
-
         self.channel_long_slug = [self.long_slug]
         self.channel_descendants = self.channel.get_descendants(
             include_self=False)

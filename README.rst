@@ -1,6 +1,6 @@
-=============================
-Opps - OPen Publishing System
-=============================
+======================================
+Opps - Open Platform Publishing System 
+======================================
 
 An *Open Source Content Management* for the **magazine** websites and **high-traffic**, using the Django Framework.
 
@@ -22,9 +22,9 @@ An *Open Source Content Management* for the **magazine** websites and **high-tra
 
 
 Documentation
-=======
+=============
 
-See here the `full documentation <http://www.oppsproject.org/>`_.
+See here the `full documentation <http://opps.github.io/opps/>`_.
 
 
 Sponsor
@@ -32,6 +32,7 @@ Sponsor
 
 * `YACOWS <http://yacows.com.br/>`_
 * `Digital Ocean <http://digitalocean.com/>`_
+* `Campus Party <http://www.campus-party.org/>`_
 
 
 License
@@ -39,7 +40,7 @@ License
 
 *opps* is licensed under the `MIT License <http://opensource.org/licenses/MIT>`_
 
-Copyright (c) 2013 Opps Project. and other contributors
+Copyright (c) 2015 Opps Project. and other contributors
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the

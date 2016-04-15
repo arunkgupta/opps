@@ -32,15 +32,17 @@ class QuerySet(Publishable):
     )
     order = models.CharField(_('Order'), max_length=1, choices=(
         ('-', 'DESC'), ('+', 'ASC')))
-    channel = models.ForeignKey(
+
+    channel = models.ManyToManyField(
         'channels.Channel',
         verbose_name=_(u"Channel"),
         blank=True,
-        null=True
+        null=True,
+        default=None
     )
 
     recursive = models.BooleanField(
-        _("Recusibve"),
+        _("Recursive"),
         help_text=_("Bring the content channels and subchannels (tree)"),
         default=False
     )
@@ -70,7 +72,7 @@ class QuerySet(Publishable):
             self.local_cache = {}
 
     def __unicode__(self):
-        return u"{} {} {}".format(self.name, self.slug, self.model)
+        return u"{0} {1} {2}".format(self.name, self.slug, self.model)
 
     def clean(self):
 
@@ -87,10 +89,12 @@ class QuerySet(Publishable):
                 raise ValidationError(_(u'Invalid JSON for excludes'))
 
         try:
-            self.get_queryset().all()
+            # TODO: See how to test queryset before channel exist
+            # self.get_queryset().all()
+            pass
         except Exception as e:
             raise ValidationError(
-                u'Invalid Queryset: {}'.format(str(e))
+                u'Invalid Queryset: {0}'.format(str(e))
             )
 
         if self.offset >= self.limit:
@@ -123,21 +127,28 @@ class QuerySet(Publishable):
             if model._meta.get_field_by_name('show_on_root_channel'):
                 queryset = queryset.filter(show_on_root_channel=True)
         except:
-            pass  # silently pass when FieldDoesNotExists
+            # silently pass when FieldDoesNotExists
+            pass
 
-        if self.channel and not self.channel.homepage:
+        if self.channel.exists():
+            ch_long_slug_in = [
+                ch.long_slug for ch in self.channel.all()
+                if ch.published and not ch.homepage]
+
             if self.recursive:
-                channel_long_slug = [self.channel.long_slug]
-                channel_descendants = self.channel.get_descendants(
-                    include_self=False)
+                channel_descendants = [
+                    ch.get_descendants(include_self=False)
+                    for ch in self.channel.all()
+                    if ch.published and not ch.homepage]
                 for children in channel_descendants:
-                    channel_long_slug.append(children.long_slug)
+                    [ch_long_slug_in.append(chi.long_slug)
+                     for chi in children if chi.published]
 
                 queryset = queryset.filter(
-                    channel_long_slug__in=channel_long_slug)
+                    channel_long_slug__in=ch_long_slug_in)
             else:
                 queryset = queryset.filter(
-                    channel_long_slug=self.channel.long_slug)
+                    channel_long_slug__in=ch_long_slug_in)
 
         if self.filters:
             filters = json.loads(self.filters)
@@ -166,7 +177,7 @@ class QuerySet(Publishable):
 
         order_term = self.order_field or 'id'
         if self.order == '-':
-            order_term = "-{}".format(self.order_field or 'id')
+            order_term = "-{0}".format(self.order_field or 'id')
 
         queryset = queryset.order_by(order_term)
 
@@ -190,4 +201,4 @@ class BaseBox(Publishable, Channeling):
         unique_together = ['site', 'channel_long_slug', 'slug']
 
     def __unicode__(self):
-        return u"{}-{}".format(self.slug, self.site.name)
+        return u"{0}-{1}".format(self.slug, self.site.name)

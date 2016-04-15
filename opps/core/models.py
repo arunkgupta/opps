@@ -94,6 +94,28 @@ class NotUserPublishable(Publisher):
         abstract = True
 
 
+class ManyChanneling(models.Model):
+    channel = models.ManyToManyField(
+        'channels.Channel',
+        verbose_name=_(u"Channels"),
+        null=True, blank=True,
+    )
+
+    class Meta:
+        abstract = True
+
+
+class ManySites(models.Model):
+    site = models.ManyToManyField(
+        Site,
+        verbose_name=_(u"Sites"),
+        null=True, blank=True,
+    )
+
+    class Meta:
+        abstract = True
+
+
 class Channeling(models.Model):
 
     channel = models.ForeignKey(
@@ -197,9 +219,13 @@ class Slugged(models.Model):
                 suffix = last.split('-')[-1]
                 if suffix.isdigit():
                     suffix = int(suffix) + 1
-                    self.slug = "{0}-{1}".format(self.slug, suffix)
+                    self.slug = "{0}-{1}".format(
+                        '-'.join(last.split('-')[0:-1]),
+                        suffix
+                    )
                 else:
                     self.slug = "{0}-1".format(self.slug)
+                return self.validate_slug()
         else:
             if slug_exists.exists():
                 raise ValidationError(_(u"Slug already exists."))
@@ -249,9 +275,9 @@ class Imaged(models.Model):
 
     def all_images(self, check_published=True):
         cachekey = _cache_key(
-            '{}-all_images'.format(self.__class__.__name__),
+            '{0}-all_images'.format(self.__class__.__name__),
             self.__class__, self.site_domain,
-            u"{}-{}".format(self.channel_long_slug, self.slug))
+            u"{0}-{1}".format(self.channel_long_slug, self.slug))
         getcache = cache.get(cachekey)
         if getcache and check_published:
             return getcache
@@ -272,9 +298,8 @@ class Imaged(models.Model):
             images = images.exclude(pk=self.main_image.pk)
         imgs += [i for i in images.distinct()]
 
-        captions = {
-            ci.image_id: ci.caption for ci in self.containerimage_set.all()
-        }
+        captions = dict(
+            (ci.image_id, ci.caption) for ci in self.containerimage_set.all())
 
         if self.main_image:
             captions[self.main_image.id] = self.main_image.caption
@@ -390,13 +415,12 @@ class Config(Publishable):
         itemsqs = cls.objects.values('key', 'value', 'format')
         if kwargs:
             itemsqs = itemsqs.filter(**kwargs)
-        data = {
-            item['key']: {
+        data = dict(
+            [(item['key'], {
                 'raw': item['value'],
                 'format': item['format'],
                 'value': cls.format_value(item['value'], item['format'])
-            } for item in itemsqs
-        }
+            }) for item in itemsqs])
         return data
 
     @classmethod

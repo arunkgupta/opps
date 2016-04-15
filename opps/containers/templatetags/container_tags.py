@@ -1,23 +1,38 @@
 # -*- coding: utf-8 -*-
+from collections import Counter
 import logging
 
 from django import template
 from django.conf import settings
 from django.utils import timezone
 from django.utils.safestring import mark_safe
-from django.template.defaultfilters import linebreaksbr
 from django.core.cache import cache
 from django.contrib.sites.models import Site
 
+from opps.channels.models import Channel
 from opps.contrib.middleware.global_request import get_request
 from opps.containers.models import Container, ContainerBox, Mirror
-from opps.channels.models import Channel
 
 from magicdate import magicdate
 
 
 register = template.Library()
 logger = logging.getLogger()
+
+
+@register.assignment_tag
+def get_tags_counter(queryset=None, n=None):
+    if queryset is None:
+        queryset = Container.objects.all_published()
+
+    counter = Counter()
+    qs = queryset.filter(tags__isnull=False).exclude(tags="").order_by()
+    print qs.count()
+    for tags in qs.values_list("tags", flat=True).distinct():
+        l = [i.strip() for i in tags.split(",") if i.strip()]
+        counter.update(l)
+
+    return counter.most_common(n)
 
 
 @register.filter
@@ -82,14 +97,10 @@ def load_boxes(context, slugs=None, **filters):
     exclude_ids = []
 
     if slugs:
-        ob = lambda i, o=ordered_slugs: (
-            i.site != current_site, i.site.id, o.index(i.slug)
-        )
+        def ob(i, o=ordered_slugs):
+            return (i.site_id != current_site, i.site_id, o.index(i.slug))
 
-        boxes = sorted(
-            boxes,
-            key=ob
-        )
+        boxes = sorted(boxes, key=ob, reverse=True)
 
     for box in boxes:
         if box.queryset:
@@ -98,17 +109,17 @@ def load_boxes(context, slugs=None, **filters):
             results = box.ordered_containers(exclude_ids=exclude_ids)
 
         if box.queryset:
-            [exclude_ids.append(i.pk)
-             for i in results if i.pk not in exclude_ids
-             and issubclass(i.__class__, Container)]
+            for i in results:
+                if i.pk not in exclude_ids and isinstance(i, Container):
+                    exclude_ids.append(i.pk)
         elif fallback:
-            [exclude_ids.append(i.container_id)
-             for i in results
-             if i.container_id and i.container_id not in exclude_ids]
+            for i in results:
+                if i.container_id and i.container_id not in exclude_ids:
+                    exclude_ids.append(i.container_id)
         else:
-            [exclude_ids.append(i.pk)
-             for i in results
-             if i.pk not in exclude_ids]
+            for i in results:
+                if i.pk not in exclude_ids:
+                    exclude_ids.append(i.pk)
 
     results = {}
     for box in boxes:
@@ -120,7 +131,8 @@ def load_boxes(context, slugs=None, **filters):
 
 
 @register.simple_tag(takes_context=True)
-def get_containerbox(context, slug, template_name=None, **extra_context):
+def get_containerbox(
+        context, slug, template_name=None, channel=None, **extra_context):
 
     request = context['request']
     current_site = getattr(
@@ -130,7 +142,7 @@ def get_containerbox(context, slug, template_name=None, **extra_context):
     )
     is_mobile = getattr(request, 'is_mobile', False)
 
-    cachekey = "ContainerBox-{}-{}-{}-{}".format(
+    cachekey = "ContainerBox-{0}-{1}-{2}-{3}".format(
         slug,
         template_name,
         is_mobile,
@@ -145,10 +157,12 @@ def get_containerbox(context, slug, template_name=None, **extra_context):
 
     if not box:
         filters = {}
-        filters['site'] = current_site
+        filters['site_id'] = current_site.id
         filters['slug'] = slug
         filters['date_available__lte'] = timezone.now()
         filters['published'] = True
+        if channel is not None:
+            filters['channel'] = channel
 
         master_site = settings.OPPS_CONTAINERS_SITE_ID or 1
 
@@ -159,7 +173,7 @@ def get_containerbox(context, slug, template_name=None, **extra_context):
 
         if current_site.id != master_site and \
            not box or not getattr(box, 'has_content', False):
-            filters['site'] = master_site
+            filters['site_id'] = master_site
             try:
                 box = ContainerBox.objects.get(**filters)
             except ContainerBox.DoesNotExist:
@@ -203,7 +217,7 @@ def get_all_containerbox(channel_long_slug=None, template_name=None):
         Long path to channel (including subchannel if is the case)
     """
 
-    cachekey = "get_all_containerbox-{}-{}".format(
+    cachekey = "get_all_containerbox-{0}-{1}".format(
         channel_long_slug,
         template_name)
 
@@ -264,9 +278,6 @@ def get_post_content(post, template_name='containers/post_related.html',
         return None
     content = getattr(post, content_field, '')
 
-    # REMOVE NEW LINES
-    content = linebreaksbr(content)
-
     # Fix embed allowfullscreen
     # TinyMCE BUG
     content = content.replace('allowfullscreen="allowfullscreen"',
@@ -309,21 +320,21 @@ def get_url(obj, http=False, target=None, url_only=False):
             _target = '_blank'
         # Determine url type
         if http:
-            _url = 'http://{}{}'.format(
+            _url = 'http://{0}{1}'.format(
                 obj.site,
                 obj.get_absolute_url())
         if url_only:
             return _url
-        return 'href="{}" target="{}"'.format(_url, _target)
+        return 'href="{0}" target="{1}"'.format(_url, _target)
     except Exception as e:
-        logger.error("Exception at templatetag get_url: {}".format(e))
+        logger.error("Exception at templatetag get_url: {0}".format(e))
         return obj.get_absolute_url()
 
 
 @register.assignment_tag
 def get_containers_by(limit=None, **filters):
     """Return a list of containers filtered by given args"""
-    cachekey = u'getcontainersby-{}'.format(hash(frozenset(filters.items())))
+    cachekey = u'getcontainersby-{0}'.format(hash(frozenset(filters.items())))
     _cache = cache.get(cachekey)
     if _cache:
         return _cache
@@ -332,10 +343,12 @@ def get_containers_by(limit=None, **filters):
     if settings.OPPS_CONTAINERS_SITE_ID:
         site = settings.OPPS_CONTAINERS_SITE_ID
 
-    containers = [i for i in Container.objects.filter(
-        site=site, published=True, **filters)[:limit]]
+    qs = Container.objects.all_published()
+    qs = qs.filter(site=site, **filters)
+    qs = qs[:limit]
+    containers = [i for i in qs]
 
-    cache.set(cachekey, containers, 3600)
+    cache.set(cachekey, containers, settings.OPPS_CACHE_EXPIRE)
     return containers
 
 
@@ -345,7 +358,7 @@ def filter_queryset_by(queryset, **filters):
     if not getattr(queryset, 'query', False):
         return queryset
 
-    cachekey = u'filterquerysetby-{}'.format(hash(unicode(queryset.query)))
+    cachekey = u'filterquerysetby-{0}'.format(hash(unicode(queryset.query)))
     _cache = cache.get(cachekey)
     if _cache:
         return _cache
@@ -366,7 +379,7 @@ def filter_queryset_by(queryset, **filters):
         return queryset
 
     containers = queryset.filter(**filters)
-    cache.set(cachekey, containers, 3600)
+    cache.set(cachekey, containers, settings.OPPS_CACHE_EXPIRE)
     return containers
 
 
@@ -377,7 +390,7 @@ def exclude_queryset_by(queryset, **excludes):
     if not getattr(queryset, 'query', False):
         return queryset
 
-    cachekey = u'excludequerysetby-{}'.format(hash(unicode(queryset.query)))
+    cachekey = u'excludequerysetby-{0}'.format(hash(unicode(queryset.query)))
     _cache = cache.get(cachekey)
     if _cache:
         return _cache
@@ -410,7 +423,7 @@ def exclude_queryset_by(queryset, **excludes):
         if mirrors:
             containers = containers.exclude(pk__in=mirrors)
 
-    cache.set(cachekey, containers, 3600)
+    cache.set(cachekey, containers, settings.OPPS_CACHE_EXPIRE)
     return containers
 
 
@@ -428,42 +441,33 @@ def get_container_by_channel(slug, number=10, depth=1,
             pass
 
     # __in split treatment
-    splited = {
-        key: value.split(',')
+    splited = dict([
+        (key, value.split(','))
         for key, value
         in kwargs.items()
-        if key.endswith('__in') and type(value) is not list}
+        if key.endswith('__in') and type(value) is not list])
     kwargs.update(splited)
 
     if include_children:
-        try:
-            kwargs['channel_long_slug__in'] = cache.get(
-                'get_container_by_channel-{}'.format(slug))
-            if not kwargs['channel_long_slug__in']:
-                base_channel = Channel.objects.get(long_slug=slug)
-                kwargs['channel_long_slug__in'] = [base_channel.long_slug]
+        k = 'channel_id__in'
+        kwargs[k] = cache.get(
+            'get_container_by_channel-{0}'.format(slug))
+        if not kwargs[k]:
 
-                def _append_recursivelly(channel, current_level=0):
-                    # Depth test
-                    if current_level >= depth:
-                        return
-                    elif current_level < depth:
-                        current_level += 1
+            try:
+                channel = Channel.objects.get(long_slug=slug)
+                qs = channel.get_descendants(include_self=True)
+                qs = qs.filter(level__lte=channel.level + depth)
+                kwargs[k] = \
+                    qs.values_list("id", flat=True)
+                cache.set(
+                    'get_container_by_channel-{0}'.format(slug),
+                    kwargs[k],
+                    settings.OPPS_CACHE_EXPIRE)
 
-                    for children in channel.get_children():
-                        kwargs['channel_long_slug__in'].append(
-                            children.long_slug)
-                        # Recursion
-                        _channel = Channel.objects.get(
-                            long_slug=children.long_slug)
-                        _append_recursivelly(_channel, current_level)
+            except Channel.DoesNotExist:
+                kwargs[k] = []
 
-                _append_recursivelly(base_channel)
-                cache.set('get_container_by_channel-{}'.format(slug),
-                          kwargs['channel_long_slug__in'],
-                          settings.OPPS_CACHE_EXPIRE)
-        except Channel.DoesNotExist:
-            kwargs['channel_long_slug__in'] = []
     try:
         kwargs['site'] = settings.SITE_ID
         if settings.OPPS_CONTAINERS_SITE_ID:
@@ -497,7 +501,7 @@ def get_containerbox_list(context, slug, num=0, template_name=None):
 
     request = context['request']
 
-    cachekey = "ContainerBoxList-{}-{}-{}".format(
+    cachekey = "ContainerBoxList-{0}-{1}-{2}".format(
         slug,
         template_name,
         request.is_mobile,
@@ -554,8 +558,8 @@ def get_custom_field_value(obj, field_slug):
 def get_postrelated_by(obj, **filters):
     """Return a list of post related filtered by given args"""
     if getattr(obj, 'postrelated_post', False):
-        cachekey = u'getpostrelatedby-{}-{}'.format(hash(frozenset(
-                                                    filters.items())), obj.pk)
+        cachekey = u'getpostrelatedby-{0}-{1}'.format(
+            hash(frozenset(filters.items())), obj.pk)
 
         _cache = cache.get(cachekey)
 
@@ -572,6 +576,6 @@ def get_postrelated_by(obj, **filters):
             containers = [i.related for i in queryset.filter(**filters)
                                                      .order_by('order')]
 
-        cache.set(cachekey, containers, 3600)
+        cache.set(cachekey, containers, settings.OPPS_CACHE_EXPIRE)
         return containers
     return ''

@@ -8,43 +8,53 @@ from .models import Channel
 from .forms import ChannelAdminForm
 from opps.core.admin import PublishableAdmin
 from opps.core.admin import apply_opps_rules
+from opps.core.permissions.admin import AdminViewPermission
 from opps.core.utils import get_template_path
 
 import json
 
 
 @apply_opps_rules('channels')
-class ChannelAdmin(PublishableAdmin, MPTTModelAdmin):
+class ChannelAdmin(PublishableAdmin, MPTTModelAdmin, AdminViewPermission):
     prepopulated_fields = {"slug": ("name",)}
-    list_display = ['name', 'show_channel_path', 'parent', 'site',
+    list_display = ['name', 'show_channel_path', 'get_parent', 'site',
                     'date_available', 'homepage', 'order', 'show_in_menu',
                     'published']
     list_filter = ['date_available', 'published', 'site', 'homepage', 'parent',
                    'show_in_menu']
     search_fields = ['name', 'slug', 'long_slug', 'description']
     exclude = ('user', 'long_slug')
-    raw_id_fields = ['parent']
+    raw_id_fields = ['parent', 'main_image']
     form = ChannelAdminForm
 
     fieldsets = (
         (_(u'Identification'), {
             'fields': ('site', 'parent', 'name', 'slug', 'layout', 'hat',
-                       'description', 'order', ('show_in_menu',
-                                                'include_in_main_rss'),
-                       'homepage', 'group', 'paginate_by')}),
+                       'description', 'tags', 'main_image',
+                       'order', ('show_in_menu', 'menu_url_target'),
+                       'include_in_main_rss', 'homepage', 'group',
+                       'paginate_by')}),
         (_(u'Publication'), {
             'classes': ('extrapretty'),
             'fields': ('published', 'date_available')}),
     )
+
+    def get_parent(self, obj):
+        if obj.parent_id:
+            long_slug, slug = obj.long_slug.rsplit("/", 1)
+            return long_slug
+
+    get_parent.admin_order_field = "parent"
+    get_parent.short_description = "Parent"
 
     def show_channel_path(self, obj):
         return unicode(obj)
     show_channel_path.short_description = _(u'Channel Path')
 
     def save_model(self, request, obj, form, change):
-        long_slug = u"{}".format(obj.slug)
+        long_slug = u"{0}".format(obj.slug)
         if obj.parent:
-            long_slug = u"{}/{}".format(obj.parent.slug, obj.slug)
+            long_slug = u"{0}/{1}".format(obj.parent.slug, obj.slug)
         obj.long_slug = long_slug
 
         super(ChannelAdmin, self).save_model(request, obj, form, change)
@@ -62,7 +72,7 @@ class ChannelAdmin(PublishableAdmin, MPTTModelAdmin):
 
         def _get_json_channel(_obj):
             return _get_template_path(
-                u'containers/{}/channel.json'.format(_obj.long_slug))
+                u'containers/{0}/channel.json'.format(_obj.long_slug))
 
         def _get_json_channel_recursivelly(_obj):
             channel_json = []

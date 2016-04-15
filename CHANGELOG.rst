@@ -2,14 +2,109 @@
 Changelog
 =========
 
+Development
+===========
+
+* Fix slug validation, #482
+
+0.2.11
+======
+
+* Automatic conversion of opps.fields for the context of the template, #430
+* * Normalization of the name of the variable to use in django template
+* Check `opps.contrib.multisite` is installed and return depends_on else depends_on is empty, #432
+
+0.2.10.1
+========
+* Hot fix opps.core.permissions data migration if not installed opps.contrib.multisite, #402
+
+0.2.10
+======
+* opps.search.views now provides a basic view for haystack.
+* * Add `OPPS_HAYSTACK_APPS` settings for thirdy-apps autoload.
+* opps.core.permissions generic package to permission, #402
+* * Data migration opps.contrib.multisite to opps.core.permissions
+* * Return warning if call opps.contrib.multisite
+
+0.2.9.1
+=======
+* opps.boxes and opps.containers migrations important fixes.
+* improves support for Thumbor including 'filters' param.
+
+0.2.9
+=====
+* QuerySet of containerbox select more one channel
+* Improves Container  admin queryset.
+* Redirects Container objects in admin to respective child_class edit page.
+* Refactoring related post to container migration
+
+0.2.8.3
+=======
+* Create function split_tags in utils.text app and apply on Tagged model #408
+* Recovery mptt search channel, use denormalized query
+
+0.2.8.2
+=======
+* Recovery create (fixed) channel using parent
+
+0.2.8.1
+=======
+* Refatoring filter channel (used mptt fields) on generic views (detail and list)
+
+0.2.8
+=======
+* Improves OPPS generic views queryset to return Containers, very very performance
+* `Post.related_posts` is now DEPRECATED and will removed soon.
+* * Now you can use related_containers instead of related_posts and all Containers have this feature.
+
+0.2.7.4
+=======
+* Update Django ver. to 1.5.11 and South ver. to 1.0.1
+* Improves get_channels_by template tag.
+* Adds TinyMCE plugin called 'oppsembed' for embed content on opps editor.
+
+0.2.7.3
+=======
+* Fix Article link duplicated redirect
+* Fix queryset on delete signal of container, using absolute reference to site and channel.
+
+0.2.7.2
+=======
+
+* Fix bug Opps API, remove page fields on query string
+
+
+0.2.7.1
+=======
+
+* Fix bug Image model calls for field "archive.url" to get_absolute_url.
+* Change Pillow version to <= 2.3.0
+
+
+0.2.7
+=====
+
+* Adds new templatetags:
+    1. get_tags_count on container_tags
+
+* opps DetailView and ListView accepts template_name parameter via custom urls.
+* Create a management command exportcontainerbox to easy dump channel and box data
+* Create a management command update_channel_denormalization to update denormalized data
+* Fix bug Opps API set page limit via query string, ref #386
+* Create admin duplication action
+* Clean haystack view, not necessary page build
+* Upgrade django grappelli 2.4.8 to 2.4.10
+
+
 0.2.6
 =====
 * Improves Django 1.6 integration
 * Uses Grappelli 2.5.3
 * Remove OPPS_CORE_APPS
 * Used opps.core.manager on Container
-* * Extend Polymorphic Manager 
+* * Extend Polymorphic Manager
 * Used channel_id on container unique_together
+* Upgrade Django version to 1.5.9 (Security releases issued https://www.djangoproject.com/weblog/2014/aug/20/security/)
 
 
 0.2.5
